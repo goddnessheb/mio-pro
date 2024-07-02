@@ -1,71 +1,44 @@
-name: Refresh
+name: refresh
+
 on:
-  # performed every two hours
   schedule:
-    - cron: "0 */2 * * *"
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.repository }}
-  cancel-in-progress: true
-
+    - cron: '0 */5 * * *'   # 每5个小时跑一次
+  workflow_dispatch: # 允许手动触发
+  
 env:
   # time zone
-  TZ: Asia/Shanghai
+ TZ: Asia/Shanghai
 
-  # github access token
-  GIST_PAT: ${{ secrets.GIST_PAT }}
-
-  # github username and gist id, separated by '/'
-  GIST_LINK: ${{ secrets.GIST_LINK }}
-
-  # the url to the list of airports that you maintain yourself
-  # each line include domain, coupon and invitation code, the domain must be included, and the latter two items are optional
-  CUSTOMIZE_LINK: ${{ secrets.CUSTOMIZE_LINK }}
-
-  # include special protocols, such as vless hysteria2 and hysteria
-  ENABLE_SPECIAL_PROTOCOLS: ${{ vars.ENABLE_SPECIAL_PROTOCOLS }}
+permissions:
+  contents: write
 
 jobs:
-  process:
+  execute-script:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
+    - uses: actions/checkout@v4
 
-      - name: Prepare
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-          architecture: "x64"
-          cache: "pip"
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
 
-      - name: Install
-        run: pip3 install -r requirements.txt
-
-      - name: Check
-        run: |
-          if [ -z "$GIST_PAT" ]; then
-              echo "Error: environment 'GIST_PAT' cannot be empty"
-              exit 1
-          fi
-
-          if [ -z "$GIST_LINK" ]; then
-              echo "Error: environment 'GIST_LINK' cannot be empty"
-              exit 1
-          fi
-
-          LINK_PARTS=$(echo "$GIST_LINK" | awk -F'/' 'NF==2 && $1!="" && $2!=""')
-          if [ -z "$LINK_PARTS" ]; then
-              echo "Error: environment 'GIST_LINK' is not valid, should be 'username/gist_id' format"
-              exit 1
-          fi
-
-      - name: Refresh
-        run: python -u subscribe/collect.py --all --both --refresh --overwrite --skip
-
-      - name: Timestamp
-        run: date
+    - name: Install dependencies
+      run: |
+        pip3 install pyYAML requests tqdm
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        
+    # usage: collect.py [-h] [-a] [-c] [-d DELAY] [-f FILENAME] [-g GIST] [-i] [-k KEY] [-l LIFE] [-n NUM] [-o] [-p PAGES] [-r] [-s] [-t TIMEOUT] [-u URL] [-v VESTIGIAL]
+    - name: Collect Subscribe
+      id: collect
+      run: |
+        python -u subscribe/collect.py --all --both --refresh --overwrite --skip
+    - name: Upload static files to R2
+      uses: ryand56/r2-upload-action@latest
+      with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
+          source-dir: data
